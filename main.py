@@ -20,17 +20,23 @@ PORT = int(os.getenv("PORT", "8080"))
 
 
 async def ping(request):
-    return web.Response(text="OK")
+    return web.Response(text="OK", headers={"Cache-Control": "no-cache"})
+
+async def health(request):
+    return web.json_response({"status": "ok", "bot": "uzum-seller-bot"})
 
 
-async def start_ping_server():
+async def start_web_server():
     app = web.Application()
-    app.router.add_get("/ping", ping)
-    app.router.add_get("/", ping)
+    app.router.add_get("/",       ping)
+    app.router.add_get("/ping",   ping)
+    app.router.add_get("/health", health)
     runner = web.AppRunner(app)
     await runner.setup()
-    await web.TCPSite(runner, "0.0.0.0", PORT).start()
-    logger.info(f"Ping server started on port {PORT}")
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    logger.info(f"Web server started on port {PORT}")
+    return runner
 
 
 async def main():
@@ -44,7 +50,6 @@ async def main():
               default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Handlerlar — tartib muhim: analytics oldin (FSM uchun)
     dp.include_router(analytics.router)
     dp.include_router(start.router)
     dp.include_router(main_menu.router)
@@ -53,11 +58,16 @@ async def main():
     scheduler.start()
     logger.info("Scheduler started")
 
-    await start_ping_server()
+    runner = await start_web_server()
 
-    logger.info("Bot is starting...")
+    logger.info("Bot polling started...")
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         scheduler.shutdown()
+        await runner.cleanup()
         await bot.session.close()
+        logger.info("Bot stopped")
+
+if __name__ == "__main__":
+    asyncio.run(main())
