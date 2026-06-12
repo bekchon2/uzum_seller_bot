@@ -1,5 +1,6 @@
 import asyncio, logging, os
 from aiohttp import web
+import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", "8080"))
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "")  # Render avtomatik beradi
 
 
 async def ping(request):
@@ -33,10 +35,31 @@ async def start_web_server():
     app.router.add_get("/health", health)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
+    await web.TCPSite(runner, "0.0.0.0", PORT).start()
     logger.info(f"Web server started on port {PORT}")
     return runner
+
+
+async def self_ping():
+    """
+    O'zini-o'zi har 10 daqiqada ping qiladi.
+    Render free tier da uxlab qolmaslik uchun.
+    """
+    if not RENDER_URL:
+        logger.info("RENDER_EXTERNAL_URL yo'q — self-ping o'chirildi (local mode)")
+        return
+
+    url = f"{RENDER_URL}/ping"
+    logger.info(f"Self-ping boshlandi: {url}")
+
+    while True:
+        await asyncio.sleep(10 * 60)  # 10 daqiqa
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    logger.info(f"Self-ping: {resp.status}")
+        except Exception as e:
+            logger.warning(f"Self-ping xato: {e}")
 
 
 async def main():
@@ -59,6 +82,9 @@ async def main():
     logger.info("Scheduler started")
 
     runner = await start_web_server()
+
+    # Self-ping — background task
+    asyncio.create_task(self_ping())
 
     logger.info("Bot polling started...")
     try:
