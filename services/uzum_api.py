@@ -241,19 +241,29 @@ def parse_finance_order(raw: dict) -> dict:
 
 
 def parse_fbs_order(raw: dict) -> dict:
-    items = raw.get("orderItems") or raw.get("items") or []
-    revenue = sum(
-        (i.get("price") or i.get("sellPrice") or 0) * (i.get("quantity") or 1)
-        for i in items
-    )
+    """
+    SellerOrderDto haqiqiy maydonlari:
+      id, status, dateCreated, price,
+      completedDate  — xaridor tovarni qabul qilgan sana (Дата получения)
+      deliveryDate   — yetkazilgan sana
+      orderItems     — tovarlar ro'yxati
+    """
+    items = raw.get("orderItems") or []
+    revenue = raw.get("price") or 0
     if not revenue:
-        revenue = raw.get("totalPrice") or raw.get("amount") or 0
+        revenue = sum(
+            (i.get("price") or 0) * (i.get("amount") or i.get("quantity") or 1)
+            for i in items
+        )
     return {
-        "id":      str(raw.get("id") or raw.get("orderId") or ""),
-        "status":  raw.get("status") or "",
-        "revenue": revenue,
-        "date":    raw.get("createdAt") or raw.get("date") or "",
-        "items":   items,
+        "id":             str(raw.get("id") or ""),
+        "status":         raw.get("status") or "",
+        "revenue":        revenue,
+        "date_created":   raw.get("dateCreated") or "",
+        "completed_date": raw.get("completedDate") or "",   # Дата получения харидором
+        "delivery_date":  raw.get("deliveryDate") or "",
+        "items":          items,
+        "scheme":         raw.get("scheme") or "FBS",
     }
 
 
@@ -272,6 +282,7 @@ def extract_finance_orders(data: dict) -> list:
 
 
 def extract_fbs_orders(data: dict) -> list:
+    """{"payload": {"orders": [...], "totalAmount": N}} → list"""
     if isinstance(data, list): return data
     payload = data.get("payload", data)
     if isinstance(payload, dict):
