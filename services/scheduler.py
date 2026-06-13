@@ -138,12 +138,11 @@ async def check_storage_alerts(bot: Bot, user_id: int, lang: str,
 async def check_delivered_orders(bot: Bot, user_id: int, lang: str,
                                   api_key: str, shop_id: int):
     """
-    Har 10 daqiqada yangi DELIVERED buyurtmalarni tekshiradi.
-    Haridor tovarni olib ketganda darhol xabar yuboradi.
+    Har 10 daqiqada COMPLETED buyurtmalarni tekshiradi.
+    Haridor tovarni olib ketganda (completedDate) darhol xabar yuboradi.
     """
     global _seen_delivered
     try:
-        # Oxirgi 7 kun ichidagi buyurtmalar
         now = datetime.datetime.now()
         d_from = int((now - datetime.timedelta(days=7)).timestamp() * 1000)
         d_to   = int(now.timestamp() * 1000)
@@ -152,41 +151,45 @@ async def check_delivered_orders(bot: Bot, user_id: int, lang: str,
         orders = [parse_fbs_order(o) for o in extract_fbs_orders(raw)]
 
         if user_id not in _seen_delivered:
-            # Birinchi tekshirishda — mavjudlarni saqlaymiz, xabar yubormamiz
+            # Birinchi tekshirishda — mavjud COMPLETED larni saqla, xabar yuborme
             _seen_delivered[user_id] = {o["id"] for o in orders
-                                         if o["status"].upper() == "DELIVERED"}
+                                         if o["status"] == "COMPLETED"}
             return
 
         seen = _seen_delivered[user_id]
-        newly_delivered = []
+        newly_completed = []
 
         for o in orders:
-            if o["status"].upper() == "DELIVERED" and o["id"] not in seen:
-                newly_delivered.append(o)
+            if o["status"] == "COMPLETED" and o["id"] not in seen:
+                newly_completed.append(o)
                 seen.add(o["id"])
 
         _seen_delivered[user_id] = seen
 
-        for o in newly_delivered:
+        for o in newly_completed:
             items = o.get("items", [])
             items_text = ""
             for item in items[:3]:
-                iname = (item.get("title") or item.get("name") or
-                         item.get("productName") or "Tovar")
-                iqty = item.get("quantity") or 1
+                iname = (item.get("title") or item.get("skuTitle") or
+                         item.get("name") or "Tovar")
+                iqty = item.get("amount") or item.get("quantity") or 1
                 items_text += f"\n  • {iname[:30]} × {iqty}"
 
+            # completedDate — xaridor qabul qilgan sana (Дата получения)
+            recv_date = o.get("completed_date") or o.get("date_created") or ""
+            recv_str  = recv_date[:10] if recv_date else "—"
+
             text = (f"✅ <b>Haridor tovarni oldi!</b>\n\n"
-                    f"🛍 Buyurtma: <b>#{o['id'][-10:]}</b>"
+                    f"🛍 Buyurtma: <b>#{str(o['id'])[-10:]}</b>"
                     f"{items_text}\n\n"
-                    f"💰 Summa: {format_money(o['revenue'])} so'm\n"
-                    f"📅 Sana: {o['date'][:10] if o['date'] else '—'}")
+                    f"💰 Summa: {format_money(o['revenue'])} so\'m\n"
+                    f"📅 Qabul qilindi: {recv_str}")
 
             await bot.send_message(user_id, text, parse_mode="HTML")
-            logger.info(f"Delivered notification → {user_id}, order {o['id']}")
+            logger.info(f"COMPLETED notification → {user_id}, order {o['id']}")
 
     except UzumRateLimitError:
-        pass  # Rate limit — keyingisida sinab ko'ramiz
+        pass
     except Exception as e:
         logger.error(f"Delivered check failed {user_id}: {e}")
 
